@@ -1,0 +1,4 @@
+setup:
+  install: "dotnet restore"
+  test: "dotnet test"
+  lint: "dotnet format --verify-no-changes"
