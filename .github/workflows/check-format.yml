@@ -1,0 +1,77 @@
+name: Check Issue/PR Format
+
+# issue の5見出しと PR の3項目を、作成時・編集時に検査する。
+# 欠けがあれば目印コメントを1つだけ作り、直ったら同じコメントを更新する。
+on:
+  issues:
+    types: [opened, edited]
+  pull_request:
+    types: [opened, edited, reopened, ready_for_review]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: check-format-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # 対象外: 下書きPR・bot作成・alert系ラベル付きissue
+    if: >-
+      github.event.pull_request.draft != true &&
+      (github.event.issue.user.type != 'Bot') &&
+      (github.event.pull_request.user.type != 'Bot') &&
+      !contains(github.event.issue.labels.*.name, 'gcp-alert') &&
+      !contains(github.event.issue.labels.*.name, 'sentry-alert')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check body
+        id: check
+        env:
+          EV: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          ev = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          if os.environ["EV"] == "pull_request":
+              kind = "pr"; body = ev["pull_request"].get("body") or ""
+          else:
+              kind = "issue"; body = ev["issue"].get("body") or ""
+          open("/tmp/fmt_body.txt", "w").write(body)
+          open("/tmp/fmt_kind.txt", "w").write(kind)
+          PY
+          KIND=$(cat /tmp/fmt_kind.txt)
+          python3 .github/scripts/check_format.py "$KIND" /tmp/fmt_body.txt > /tmp/fmt_missing.txt
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          cat /tmp/fmt_missing.txt
+      - name: Upsert report comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.issue.number || github.event.pull_request.number }}
+          EXIT: ${{ steps.check.outputs.exit }}
+        run: |
+          if [ "$EXIT" = "0" ]; then
+            printf '<!-- format-check -->\n書き方チェック: OK\n' > /tmp/fmt_comment.md
+          else
+            {
+              echo '<!-- format-check -->'
+              echo '書き方チェック: 次の項目が足りません。本文を直してください。'
+              echo ''
+              echo '```'
+              cat /tmp/fmt_missing.txt
+              echo '```'
+            } > /tmp/fmt_comment.md
+          fi
+          EXIST=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUM/comments" --jq '.[] | select(.body | contains("format-check")) | .id' | head -1)
+          if [ -n "$EXIST" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$EXIST" -F body=@/tmp/fmt_comment.md > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$NUM/comments" -F body=@/tmp/fmt_comment.md > /dev/null
+          fi
+      - name: Fail on missing
+        if: steps.check.outputs.exit == '1'
+        run: cat /tmp/fmt_missing.txt; exit 1

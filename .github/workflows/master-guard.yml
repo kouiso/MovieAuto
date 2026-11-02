@@ -1,0 +1,35 @@
+name: Master Branch Guard
+
+# develop→master の使い分け: master への PR は hotfix/*・release/*・develop のみ。
+# それ以外のブランチから master へ出した PR は赤にしてコメントする。
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  guard:
+    if: github.event.pull_request.base.ref == 'master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.pull_request.number }}
+          BR: ${{ github.event.pull_request.head.ref }}
+        run: |
+          case "$BR" in
+            hotfix/*|release/*|develop) exit 0;;
+          esac
+          printf '<!-- master-guard -->\nmaster へ出せるのは `hotfix/*`・`release/*`・`develop` だけです。`develop` に付け替えてください。\n' > /tmp/mg_comment.md
+          EXIST=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUM/comments" --jq '.[] | select(.body | contains("master-guard")) | .id' | head -1)
+          if [ -n "$EXIST" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$EXIST" -F body=@/tmp/mg_comment.md > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$NUM/comments" -F body=@/tmp/mg_comment.md > /dev/null
+          fi
+          echo "branch $BR is not allowed to target master" >&2
+          exit 1

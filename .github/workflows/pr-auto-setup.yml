@@ -1,0 +1,52 @@
+name: PR Auto Setup
+
+# PRが開かれた時: 作った人を担当者にし、ブランチ名と変更場所でラベルを付ける。
+# 担当者の付け外しに失敗してもラベル付けは続ける。
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  setup:
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assign author
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.pull_request.number }}
+          WHO: ${{ github.event.pull_request.user.login }}
+        run: gh pr edit "$NUM" --add-assignee "$WHO" || true
+      - name: Apply labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.pull_request.number }}
+          BR: ${{ github.event.pull_request.head.ref }}
+        run: |
+          LABELS=""
+          case "$BR" in
+            feature/*|feat/*) LABELS="$LABELS feature";;
+            bugfix/*|fix/*) LABELS="$LABELS bugfix";;
+            hotfix/*) LABELS="$LABELS hotfix";;
+            chore/*|refactor/*) LABELS="$LABELS chore";;
+            docs/*) LABELS="$LABELS documentation";;
+            release/*) LABELS="$LABELS release";;
+          esac
+          # 変更場所でも付ける（このリポ: docs / github 設定 / 依存）
+          FILES=$(gh pr view "$NUM" --json files --jq '.[].path')
+          echo "$FILES" | grep -qiE '\.md$|^doc' && LABELS="$LABELS documentation" || true
+          echo "$FILES" | grep -qE '^\.github/' && LABELS="$LABELS ci" || true
+          echo "$FILES" | grep -qE '(package\.json|bun\.lock|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)' && LABELS="$LABELS dependencies" || true
+          for L in $LABELS; do
+            gh label create "$L" --force 2>/dev/null || true
+          done
+          for L in $LABELS; do
+            gh pr edit "$NUM" --add-label "$L" || true
+          done

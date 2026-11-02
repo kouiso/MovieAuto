@@ -1,0 +1,9 @@
+# 公開内容チェックの規則 — 一行一則 `規則名<TAB>正規表現`（行単位・命中文字は報告しない）
+# 依頼元指定の禁止語はこの末尾に追加する（現在未指定）
+secret-keyblock	-----BEGIN [A-Z0-9 ]*PRIVATE KEY
+secret-token	(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN OPENSSH PRIVATE KEY)
+secret-name	(?i)(api[_-]?key|secret|password|passwd|credential)\s*[:=]\s*["']?[A-Za-z0-9_+/.-]{8,}
+db-conn	(?i)(postgres|postgresql|mysql|mongodb|redis|mariadb)://[^\s"']+|Server=[^\s;]+;[^\n]*(Database|Uid|Pwd)=
+money	([¥$€]\s?[0-9]{1,3}(,[0-9]{3})+|[0-9][0-9,]*\s*万?円)
+email	[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
+exploit	(?i)(sql[ -]?injection|xss|csrf|buffer[ -]?overflow|rce\b|exploit|攻撃手順|脆弱性の突き方)
