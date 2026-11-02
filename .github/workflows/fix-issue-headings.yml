@@ -1,0 +1,51 @@
+name: Fix Issue Headings
+
+# フォーム由来の issue 本文は見出しが一段深い（### 始まり）。
+# 起票直後に ###→##・####→### へ一段上げる。変わらなければ何もしない。
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  fix:
+    if: github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Demote headings
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ github.event.issue.number }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          ev = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          body = ev["issue"].get("body") or ""
+          def demote(m):
+              return "#" * (len(m.group(1)) - 1) + m.group(2)
+          fixed = re.sub(r"(?m)^(#{3,6})(\s.*)$", demote, body)
+          open("/tmp/fixed_body.txt", "w").write(fixed)
+          print("changed" if fixed != body else "unchanged")
+          PY
+          if cmp -s /dev/null /dev/null; then :; fi
+          python3 - <<'PY'
+          import json, os, urllib.request
+          body = open("/tmp/fixed_body.txt").read()
+          orig = json.load(open(os.environ["GITHUB_EVENT_PATH"]))["issue"].get("body") or ""
+          if body == orig:
+              raise SystemExit(0)
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['NUM']}",
+              data=json.dumps({"body": body}).encode(),
+              method="PATCH",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              })
+          urllib.request.urlopen(req)
+          print("issue body demoted")
+          PY

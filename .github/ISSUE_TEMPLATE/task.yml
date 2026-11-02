@@ -1,0 +1,40 @@
+name: 作業の依頼
+description: 背景から完了条件まで5つの見出しで書く
+title: ""
+labels: []
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: 何が起きている・なぜやるか
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: 今どこまで
+      description: 現状・すでに確認したこと
+    validations:
+      required: true
+  - type: textarea
+    id: next
+    attributes:
+      label: 次にやること
+      description: 手順・対象範囲
+    validations:
+      required: true
+  - type: textarea
+    id: waiting
+    attributes:
+      label: 誰の判断待ち
+      description: 人の判断・外部待ちがあれば書く。無ければ「なし」
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 完了条件
+      description: 何が揃ったら閉じるか
+    validations:
+      required: true

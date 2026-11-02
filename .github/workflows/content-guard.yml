@@ -1,0 +1,75 @@
+name: Public Content Guard
+
+# issue・PR・コメント本文を作成時・編集時に検査する。
+# 命中は「規則名・行番号・件数」だけをコメントで知らせ、本文は書き換えない。
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  pull_request:
+    types: [opened, edited, reopened]
+  pull_request_review_comment:
+    types: [created, edited]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: content-guard-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    # bot 自身の通知コメントを再検査しない（ループ防止）
+    if: >-
+      github.event_name != 'issue_comment' || github.event.comment.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract body
+        env:
+          EV: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          ev = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          body = (
+              ev.get("issue", {}).get("body")
+              or ev.get("comment", {}).get("body")
+              or ev.get("pull_request", {}).get("body")
+              or ""
+          )
+          open("/tmp/guard_body.txt", "w").write(body)
+          PY
+      - name: Scan
+        id: scan
+        continue-on-error: true
+        run: python3 .github/scripts/content_guard.py .github/content-guard-rules.txt /tmp/guard_body.txt > /tmp/guard_hits.txt; echo "exit=$?" >> "$GITHUB_OUTPUT"; cat /tmp/guard_hits.txt
+      - name: Report hits
+        if: steps.scan.outputs.exit == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EV: ${{ github.event_name }}
+          NUM: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          {
+            echo '<!-- content-guard -->'
+            echo '公開内容チェック: 書いてはいけない内容に当たった可能性があります。'
+            echo '該当行を本人が確認して直してください（検査は本文を書き換えません）。'
+            echo ''
+            echo '```'
+            cat /tmp/guard_hits.txt
+            echo '```'
+          } > /tmp/guard_comment.md
+          EXIST=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUM/comments" --jq '.[] | select(.body | contains("content-guard")) | .id' | head -1)
+          if [ -n "$EXIST" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$EXIST" -F body=@/tmp/guard_comment.md > /dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$NUM/comments" -F body=@/tmp/guard_comment.md > /dev/null
+          fi
+      - name: Fail on hits
+        if: steps.scan.outputs.exit == '1'
+        run: cat /tmp/guard_hits.txt; exit 1
